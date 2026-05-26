@@ -1,0 +1,302 @@
+#include "audio_uploader.h"
+
+#include "base64_codec.h"
+#include "fatfs.h"
+#include "wav_format.h"
+#include <stdio.h>
+#include <string.h>
+
+#define AUDIO_UPLOAD_TOPIC              "asr/device/CARD0001/audio/chunk"
+#define AUDIO_UPLOAD_QUEUE_DEPTH        8U
+#define AUDIO_UPLOAD_PCM_CHUNK_BYTES    512U
+#define AUDIO_UPLOAD_B64_BUFFER_SIZE    685U
+#define AUDIO_UPLOAD_PAYLOAD_SIZE       900U
+#define AUDIO_UPLOAD_SEQUENCE           0U
+#define AUDIO_UPLOAD_MIN_INTERVAL_MS    50U
+#define AUDIO_UPLOAD_FALLBACK_TIME_MS   1779195600000ULL
+
+typedef struct {
+    char filename[AUDIO_UPLOADER_FILENAME_MAX];
+    uint32_t session_id;
+    bool final_file;
+} AudioUploadFileItem_t;
+
+typedef struct {
+    bool file_open;
+    bool active_item_valid;
+    AudioUploadFileItem_t queue[AUDIO_UPLOAD_QUEUE_DEPTH];
+    AudioUploadFileItem_t active_item;
+    uint8_t read_index;
+    uint8_t write_index;
+    uint8_t queue_count;
+    FIL file;
+    uint8_t pcm[AUDIO_UPLOAD_PCM_CHUNK_BYTES];
+    char base64[AUDIO_UPLOAD_B64_BUFFER_SIZE];
+    char payload[AUDIO_UPLOAD_PAYLOAD_SIZE];
+    uint32_t uploaded_files;
+    uint32_t uploaded_chunks;
+    uint32_t dropped_files;
+    uint32_t last_process_tick;
+    uint32_t timestamp_session_id;
+    uint64_t session_timestamp_ms;
+    AudioUploaderResult_t last_result;
+    FourGMqttResult_t last_mqtt_result;
+} AudioUploaderContext_t;
+
+static AudioUploaderContext_t gAudioUploader;
+
+static bool AudioUploader_QueueIsFull(void)
+{
+    return gAudioUploader.queue_count >= AUDIO_UPLOAD_QUEUE_DEPTH;
+}
+
+static bool AudioUploader_QueueIsEmpty(void)
+{
+    return gAudioUploader.queue_count == 0U;
+}
+
+static void AudioUploader_PopQueue(AudioUploadFileItem_t *item)
+{
+    if ((item == NULL) || AudioUploader_QueueIsEmpty()) {
+        return;
+    }
+
+    *item = gAudioUploader.queue[gAudioUploader.read_index];
+    gAudioUploader.read_index = (uint8_t)((gAudioUploader.read_index + 1U) % AUDIO_UPLOAD_QUEUE_DEPTH);
+    gAudioUploader.queue_count--;
+}
+
+static AudioUploaderResult_t AudioUploader_OpenActiveFile(void)
+{
+    FRESULT fr;
+
+    fr = f_open(&gAudioUploader.file, gAudioUploader.active_item.filename, FA_READ);
+    if (fr != FR_OK) {
+        gAudioUploader.dropped_files++;
+        gAudioUploader.last_result = AUDIO_UPLOADER_FILE_ERROR;
+        return gAudioUploader.last_result;
+    }
+
+    if (gAudioUploader.timestamp_session_id != gAudioUploader.active_item.session_id) {
+        gAudioUploader.session_timestamp_ms = FourG_MQTT_GetUnixTimeMs(AUDIO_UPLOAD_FALLBACK_TIME_MS);
+        gAudioUploader.timestamp_session_id = gAudioUploader.active_item.session_id;
+    }
+
+    fr = f_lseek(&gAudioUploader.file, WAV_HEADER_SIZE);
+    if (fr != FR_OK) {
+        (void)f_close(&gAudioUploader.file);
+        gAudioUploader.dropped_files++;
+        gAudioUploader.last_result = AUDIO_UPLOADER_FILE_ERROR;
+        return gAudioUploader.last_result;
+    }
+
+    gAudioUploader.file_open = true;
+    gAudioUploader.last_result = AUDIO_UPLOADER_OK;
+    return gAudioUploader.last_result;
+}
+
+static AudioUploaderResult_t AudioUploader_LoadNextFile(void)
+{
+    while (!AudioUploader_QueueIsEmpty()) {
+        AudioUploader_PopQueue(&gAudioUploader.active_item);
+        gAudioUploader.active_item_valid = true;
+        if (AudioUploader_OpenActiveFile() == AUDIO_UPLOADER_OK) {
+            return AUDIO_UPLOADER_OK;
+        }
+        gAudioUploader.active_item_valid = false;
+    }
+
+    return AUDIO_UPLOADER_OK;
+}
+
+static AudioUploaderResult_t AudioUploader_SendChunk(const uint8_t *pcm, uint16_t pcm_length, bool is_final)
+{
+    uint16_t encoded_length;
+    int written;
+    const char *final_text = is_final ? "true" : "false";
+    FourGMqttResult_t mqtt_result;
+
+    if ((pcm == NULL) || (pcm_length == 0U)) {
+        gAudioUploader.last_result = AUDIO_UPLOADER_INVALID_PARAM;
+        return gAudioUploader.last_result;
+    }
+
+    encoded_length = Base64_Encode(pcm, pcm_length, gAudioUploader.base64, sizeof(gAudioUploader.base64));
+    if (encoded_length == 0U) {
+        gAudioUploader.last_result = AUDIO_UPLOADER_ENCODE_ERROR;
+        return gAudioUploader.last_result;
+    }
+
+    written = snprintf(gAudioUploader.payload, sizeof(gAudioUploader.payload),
+                       "{\"session_id\":\"%lu\",\"sequence\":%u,\"timestamp\":%llu,\"is_final\":%s,\"audio_base64\":\"%s\",\"format\":\"pcm\"}",
+                       (unsigned long)gAudioUploader.active_item.session_id,
+                       (unsigned int)AUDIO_UPLOAD_SEQUENCE,
+                       (unsigned long long)gAudioUploader.session_timestamp_ms,
+                       final_text,
+                       gAudioUploader.base64);
+
+    if ((written < 0) || ((uint32_t)written >= sizeof(gAudioUploader.payload))) {
+        gAudioUploader.last_result = AUDIO_UPLOADER_ENCODE_ERROR;
+        return gAudioUploader.last_result;
+    }
+
+    mqtt_result = FourG_MQTT_PublishRaw(AUDIO_UPLOAD_TOPIC, gAudioUploader.payload, (uint16_t)written);
+    gAudioUploader.last_mqtt_result = mqtt_result;
+    if (mqtt_result != FOUR_G_MQTT_OK) {
+        gAudioUploader.last_result = AUDIO_UPLOADER_MQTT_ERROR;
+        return gAudioUploader.last_result;
+    }
+
+    gAudioUploader.uploaded_chunks++;
+    gAudioUploader.last_result = AUDIO_UPLOADER_OK;
+    return gAudioUploader.last_result;
+}
+
+void AudioUploader_Init(void)
+{
+    memset(&gAudioUploader, 0, sizeof(gAudioUploader));
+    gAudioUploader.last_result = AUDIO_UPLOADER_OK;
+    gAudioUploader.last_mqtt_result = FOUR_G_MQTT_OK;
+}
+
+AudioUploaderResult_t AudioUploader_EnqueueFile(const char *filename, uint32_t session_id, bool final_file)
+{
+    AudioUploadFileItem_t *item;
+
+    if ((filename == NULL) || (filename[0] == '\0') || (session_id == 0U)) {
+        gAudioUploader.last_result = AUDIO_UPLOADER_INVALID_PARAM;
+        return gAudioUploader.last_result;
+    }
+
+    if (AudioUploader_QueueIsFull()) {
+        gAudioUploader.dropped_files++;
+        gAudioUploader.last_result = AUDIO_UPLOADER_QUEUE_FULL;
+        return gAudioUploader.last_result;
+    }
+
+    item = &gAudioUploader.queue[gAudioUploader.write_index];
+    memset(item, 0, sizeof(*item));
+    (void)snprintf(item->filename, sizeof(item->filename), "%s", filename);
+    item->session_id = session_id;
+    item->final_file = final_file;
+
+    gAudioUploader.write_index = (uint8_t)((gAudioUploader.write_index + 1U) % AUDIO_UPLOAD_QUEUE_DEPTH);
+    gAudioUploader.queue_count++;
+    gAudioUploader.last_result = AUDIO_UPLOADER_OK;
+    return gAudioUploader.last_result;
+}
+
+void AudioUploader_MarkLastQueuedFileFinal(uint32_t session_id)
+{
+    if (gAudioUploader.file_open &&
+        gAudioUploader.active_item_valid &&
+        (gAudioUploader.active_item.session_id == session_id) &&
+        AudioUploader_QueueIsEmpty()) {
+        gAudioUploader.active_item.final_file = true;
+        return;
+    }
+
+    for (uint8_t i = 0U; i < gAudioUploader.queue_count; i++) {
+        uint8_t index = (uint8_t)((gAudioUploader.read_index + i) % AUDIO_UPLOAD_QUEUE_DEPTH);
+        if (gAudioUploader.queue[index].session_id == session_id) {
+            gAudioUploader.queue[index].final_file = false;
+        }
+    }
+
+    if (gAudioUploader.queue_count > 0U) {
+        uint8_t last_index = (uint8_t)((gAudioUploader.write_index + AUDIO_UPLOAD_QUEUE_DEPTH - 1U) % AUDIO_UPLOAD_QUEUE_DEPTH);
+        if (gAudioUploader.queue[last_index].session_id == session_id) {
+            gAudioUploader.queue[last_index].final_file = true;
+        }
+    }
+}
+
+void AudioUploader_Process(void)
+{
+    UINT bytes_read = 0;
+    FRESULT fr;
+    bool is_eof;
+    bool is_final_chunk;
+    uint32_t now = HAL_GetTick();
+
+    if ((gAudioUploader.last_process_tick != 0U) &&
+        ((now - gAudioUploader.last_process_tick) < AUDIO_UPLOAD_MIN_INTERVAL_MS)) {
+        return;
+    }
+    gAudioUploader.last_process_tick = now;
+
+    if (!gAudioUploader.file_open) {
+        (void)AudioUploader_LoadNextFile();
+        if (!gAudioUploader.file_open) {
+            return;
+        }
+    }
+
+    fr = f_read(&gAudioUploader.file, gAudioUploader.pcm, AUDIO_UPLOAD_PCM_CHUNK_BYTES, &bytes_read);
+    if (fr != FR_OK) {
+        (void)f_close(&gAudioUploader.file);
+        gAudioUploader.file_open = false;
+        gAudioUploader.active_item_valid = false;
+        gAudioUploader.dropped_files++;
+        gAudioUploader.last_result = AUDIO_UPLOADER_FILE_ERROR;
+        return;
+    }
+
+    if (bytes_read == 0U) {
+        (void)f_close(&gAudioUploader.file);
+        gAudioUploader.file_open = false;
+        gAudioUploader.active_item_valid = false;
+        gAudioUploader.uploaded_files++;
+        gAudioUploader.last_result = AUDIO_UPLOADER_OK;
+        return;
+    }
+
+    is_eof = f_eof(&gAudioUploader.file) != 0;
+    is_final_chunk = gAudioUploader.active_item.final_file && is_eof;
+
+    if (AudioUploader_SendChunk(gAudioUploader.pcm, (uint16_t)bytes_read, is_final_chunk) != AUDIO_UPLOADER_OK) {
+        return;
+    }
+
+    if (is_eof) {
+        (void)f_close(&gAudioUploader.file);
+        gAudioUploader.file_open = false;
+        gAudioUploader.active_item_valid = false;
+        gAudioUploader.uploaded_files++;
+    }
+}
+
+bool AudioUploader_IsBusy(void)
+{
+    return gAudioUploader.file_open || !AudioUploader_QueueIsEmpty();
+}
+
+AudioUploaderResult_t AudioUploader_GetLastResult(void)
+{
+    return gAudioUploader.last_result;
+}
+
+FourGMqttResult_t AudioUploader_GetLastMqttResult(void)
+{
+    return gAudioUploader.last_mqtt_result;
+}
+
+uint32_t AudioUploader_GetUploadedFiles(void)
+{
+    return gAudioUploader.uploaded_files;
+}
+
+uint32_t AudioUploader_GetUploadedChunks(void)
+{
+    return gAudioUploader.uploaded_chunks;
+}
+
+uint32_t AudioUploader_GetDroppedFiles(void)
+{
+    return gAudioUploader.dropped_files;
+}
+
+uint8_t AudioUploader_GetQueueCount(void)
+{
+    return gAudioUploader.queue_count;
+}
