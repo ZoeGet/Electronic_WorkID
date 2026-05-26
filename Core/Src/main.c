@@ -258,10 +258,11 @@ int main(void)
       }
     }
 
-    if (Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING) {
+    if ((Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING) &&
+        !stopMsgActive && !errorMsgActive) {
       AudioUploader_Process();
 
-      if (!stopMsgActive && !errorMsgActive && ((HAL_GetTick() - lastUploadDisplayTick) >= 1000U)) {
+      if ((HAL_GetTick() - lastUploadDisplayTick) >= 1000U) {
         lastUploadDisplayTick = HAL_GetTick();
         LCD_DisplayUploadStatus();
       }
