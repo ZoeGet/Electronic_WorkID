@@ -7,11 +7,31 @@
 #include "gps.h"
 #include "audio_uploader.h"
 
+static const char *LCD_GetMqttResultText(FourGMqttResult_t result)
+{
+  switch (result) {
+    case FOUR_G_MQTT_OK:
+      return "OK";
+    case FOUR_G_MQTT_ERROR:
+      return "ERR";
+    case FOUR_G_MQTT_INVALID_PARAM:
+      return "PARAM";
+    case FOUR_G_MQTT_TIMEOUT:
+      return "TMO";
+    case FOUR_G_MQTT_BUSY:
+      return "BUSY";
+    case FOUR_G_MQTT_TOPIC_MISMATCH:
+      return "TOPIC";
+    default:
+      return "UNK";
+  }
+}
+
 void LCD_DisplayUploadStatus(void)
 {
   char line[32];
 
-  ST7735_FillRect(0, 0, ST7735_WIDTH, 62, ST7735_BLACK);
+  ST7735_FillRect(0, 0, ST7735_WIDTH, 76, ST7735_BLACK);
   ST7735_DrawString(2, 2, "WAV Upload", ST7735_GREEN, ST7735_BLACK, &Font_7x10);
 
   if (AudioUploader_IsBusy()) {
@@ -39,11 +59,23 @@ void LCD_DisplayUploadStatus(void)
       ST7735_DrawString(2, 46, "Last:FileErr", ST7735_RED, ST7735_BLACK, &Font_7x10);
       break;
     case AUDIO_UPLOADER_MQTT_ERROR:
-      ST7735_DrawString(2, 46, "Last:MQTTErr", ST7735_RED, ST7735_BLACK, &Font_7x10);
+      snprintf(line, sizeof(line), "Last:MQTT %s", LCD_GetMqttResultText(AudioUploader_GetLastMqttResult()));
+      ST7735_DrawString(2, 46, line, ST7735_RED, ST7735_BLACK, &Font_7x10);
       break;
     default:
       ST7735_DrawString(2, 46, "Last:OtherErr", ST7735_RED, ST7735_BLACK, &Font_7x10);
       break;
+  }
+
+  snprintf(line, sizeof(line), "O:%s F:%s", FourG_MQTT_AsyncGetErrorOpText(), FourG_MQTT_AsyncGetErrorStepText());
+  ST7735_FillRect(0, 60, ST7735_WIDTH, 42, ST7735_BLACK);
+  ST7735_DrawString(2, 60, line, ST7735_CYAN, ST7735_BLACK, &Font_7x10);
+
+  {
+    snprintf(line, sizeof(line), "TX:%s", FourG_MQTT_GetTxSummary());
+    ST7735_DrawString(2, 74, line, ST7735_YELLOW, ST7735_BLACK, &Font_7x10);
+    snprintf(line, sizeof(line), "RX:%s", FourG_MQTT_GetRxSummary());
+    ST7735_DrawString(2, 88, line, ST7735_WHITE, ST7735_BLACK, &Font_7x10);
   }
 }
 

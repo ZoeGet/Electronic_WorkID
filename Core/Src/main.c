@@ -47,6 +47,13 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum {
+  GPS_UPLOAD_STATE_IDLE = 0,
+  GPS_UPLOAD_STATE_CONNECT_WAIT,
+  GPS_UPLOAD_STATE_TIME_WAIT,
+  GPS_UPLOAD_STATE_PUBLISH_WAIT,
+  GPS_UPLOAD_STATE_DISCONNECT_WAIT
+} GpsUploadState_t;
 
 /* USER CODE END PTD */
 
@@ -63,6 +70,10 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+static GpsUploadState_t gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+static float gPendingGpsLatitude = 0.0f;
+static float gPendingGpsLongitude = 0.0f;
+static char gPendingGpsTimestamp[24];
 
 /* USER CODE END PV */
 
@@ -208,6 +219,7 @@ int main(void)
       }
 
       if (Recorder_GetState(&gRecorder) == RECORDER_STATE_READY) {
+        AudioUploader_Abort();
         gRecordingSessionId++;
         if (gRecordingSessionId == 0U) {
           gRecordingSessionId = 1U;
@@ -255,16 +267,6 @@ int main(void)
           errorMsgActive = true;
           errorMsgStartTick = HAL_GetTick();
         }
-      }
-    }
-
-    if ((Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING) &&
-        !stopMsgActive && !errorMsgActive) {
-      AudioUploader_Process();
-
-      if ((HAL_GetTick() - lastUploadDisplayTick) >= 1000U) {
-        lastUploadDisplayTick = HAL_GetTick();
-        LCD_DisplayUploadStatus();
       }
     }
 
@@ -355,7 +357,137 @@ int main(void)
         gpsParsed = 1U;
       }
 
-      if ((gpsParsed != 0U) && (Save_Data.isUsefull) &&
+      switch (gGpsUploadState)
+      {
+        case GPS_UPLOAD_STATE_CONNECT_WAIT:
+        {
+          FourGMqttAsyncStatus_t status = FourG_MQTT_AsyncProcess();
+          if (status == FOUR_G_MQTT_ASYNC_DONE)
+          {
+            if (FourG_MQTT_AsyncGetUnixTimeStart() == FOUR_G_MQTT_OK)
+            {
+              gGpsUploadState = GPS_UPLOAD_STATE_TIME_WAIT;
+            }
+            else
+            {
+              (void)snprintf(gPendingGpsTimestamp, sizeof(gPendingGpsTimestamp), "1970-01-01T00:00:00Z");
+              if (FourG_MQTT_AsyncPublishLocationStart(gPendingGpsLatitude, gPendingGpsLongitude, gPendingGpsTimestamp) == FOUR_G_MQTT_OK)
+              {
+                gGpsUploadState = GPS_UPLOAD_STATE_PUBLISH_WAIT;
+              }
+              else if (FourG_MQTT_AsyncDisconnectStart() == FOUR_G_MQTT_OK)
+              {
+                gGpsUploadState = GPS_UPLOAD_STATE_DISCONNECT_WAIT;
+              }
+              else
+              {
+                lastGpsUploadTick = HAL_GetTick();
+                gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+              }
+            }
+          }
+          else if (status == FOUR_G_MQTT_ASYNC_ERROR)
+          {
+            if (FourG_MQTT_AsyncDisconnectStart() == FOUR_G_MQTT_OK)
+            {
+              gGpsUploadState = GPS_UPLOAD_STATE_DISCONNECT_WAIT;
+            }
+            else
+            {
+              lastGpsUploadTick = HAL_GetTick();
+              gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+            }
+          }
+          break;
+        }
+
+        case GPS_UPLOAD_STATE_TIME_WAIT:
+        {
+          FourGMqttAsyncStatus_t status = FourG_MQTT_AsyncProcess();
+          if (status == FOUR_G_MQTT_ASYNC_DONE)
+          {
+            if (!FourG_MQTT_AsyncGetTimestamp(gPendingGpsTimestamp, sizeof(gPendingGpsTimestamp)))
+            {
+              (void)snprintf(gPendingGpsTimestamp, sizeof(gPendingGpsTimestamp), "1970-01-01T00:00:00Z");
+            }
+
+            if (FourG_MQTT_AsyncPublishLocationStart(gPendingGpsLatitude, gPendingGpsLongitude, gPendingGpsTimestamp) == FOUR_G_MQTT_OK)
+            {
+              gGpsUploadState = GPS_UPLOAD_STATE_PUBLISH_WAIT;
+            }
+            else if (FourG_MQTT_AsyncDisconnectStart() == FOUR_G_MQTT_OK)
+            {
+              gGpsUploadState = GPS_UPLOAD_STATE_DISCONNECT_WAIT;
+            }
+            else
+            {
+              lastGpsUploadTick = HAL_GetTick();
+              gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+            }
+          }
+          else if (status == FOUR_G_MQTT_ASYNC_ERROR)
+          {
+            (void)snprintf(gPendingGpsTimestamp, sizeof(gPendingGpsTimestamp), "1970-01-01T00:00:00Z");
+            if (FourG_MQTT_AsyncPublishLocationStart(gPendingGpsLatitude, gPendingGpsLongitude, gPendingGpsTimestamp) == FOUR_G_MQTT_OK)
+            {
+              gGpsUploadState = GPS_UPLOAD_STATE_PUBLISH_WAIT;
+            }
+            else if (FourG_MQTT_AsyncDisconnectStart() == FOUR_G_MQTT_OK)
+            {
+              gGpsUploadState = GPS_UPLOAD_STATE_DISCONNECT_WAIT;
+            }
+            else
+            {
+              lastGpsUploadTick = HAL_GetTick();
+              gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+            }
+          }
+          break;
+        }
+
+        case GPS_UPLOAD_STATE_PUBLISH_WAIT:
+        {
+          FourGMqttAsyncStatus_t status = FourG_MQTT_AsyncProcess();
+          if (status == FOUR_G_MQTT_ASYNC_DONE)
+          {
+            lastGpsUploadTick = HAL_GetTick();
+            gpsLocationUploaded = true;
+            gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+          }
+          else if (status == FOUR_G_MQTT_ASYNC_ERROR)
+          {
+            if (FourG_MQTT_AsyncDisconnectStart() == FOUR_G_MQTT_OK)
+            {
+              gGpsUploadState = GPS_UPLOAD_STATE_DISCONNECT_WAIT;
+            }
+            else
+            {
+              lastGpsUploadTick = HAL_GetTick();
+              gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+            }
+          }
+          break;
+        }
+
+        case GPS_UPLOAD_STATE_DISCONNECT_WAIT:
+        {
+          FourGMqttAsyncStatus_t status = FourG_MQTT_AsyncProcess();
+          if (status != FOUR_G_MQTT_ASYNC_BUSY)
+          {
+            lastGpsUploadTick = HAL_GetTick();
+            gGpsUploadState = GPS_UPLOAD_STATE_IDLE;
+          }
+          break;
+        }
+
+        case GPS_UPLOAD_STATE_IDLE:
+        default:
+          break;
+      }
+
+      if (false &&
+          (gGpsUploadState == GPS_UPLOAD_STATE_IDLE) &&
+          (gpsParsed != 0U) && (Save_Data.isUsefull) &&
           (Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING) &&
           !stopMsgActive && !errorMsgActive &&
           (!gpsLocationUploaded || ((HAL_GetTick() - lastGpsUploadTick) >= 30000U)))
@@ -365,9 +497,16 @@ int main(void)
 
         if ((latitude != 0.0f) && (longitude != 0.0f) && !AudioUploader_IsBusy())
         {
-          (void)FourG_MQTT_PublishLocation(latitude, longitude);
-          lastGpsUploadTick = HAL_GetTick();
-          gpsLocationUploaded = true;
+          gPendingGpsLatitude = latitude;
+          gPendingGpsLongitude = longitude;
+          if (FourG_MQTT_AsyncEnsureConnectedStart() == FOUR_G_MQTT_OK)
+          {
+            gGpsUploadState = GPS_UPLOAD_STATE_CONNECT_WAIT;
+          }
+          else
+          {
+            lastGpsUploadTick = HAL_GetTick();
+          }
         }
       }
 
@@ -381,29 +520,44 @@ int main(void)
         }
       }
 
-      printGpsBuffer();    // 调试用，通过串口打印 GPS 数据
+      if (gpsParsed != 0U)
+      {
+        Save_Data.isParseData = false;
+      }
+
+      /* GPS printf debug is disabled because __io_putchar is not retargeted in this project. */
     }
 
     // GPS 调试信息：显示接收计数（始终显示）
-    {
-      static uint32_t lastRxCount = 0;
-      static uint32_t lastDisplayTick = 0;
-      uint32_t currentRxCount = GPS_GetRxCount();
+    // {
+    //   static uint32_t lastRxCount = 0;
+    //   static uint32_t lastDisplayTick = 0;
+    //   uint32_t currentRxCount = GPS_GetRxCount();
 
-      if (HAL_GetTick() - lastDisplayTick > 1000) {
-        lastDisplayTick = HAL_GetTick();
+    //   if (HAL_GetTick() - lastDisplayTick > 1000) {
+    //     lastDisplayTick = HAL_GetTick();
 
-        ST7735_FillRect(0, 64, ST7735_WIDTH, 16, ST7735_BLACK);
+    //     ST7735_FillRect(0, 64, ST7735_WIDTH, 16, ST7735_BLACK);
 
-        if (currentRxCount != lastRxCount) {
-          LCD_DisplayDebug(0, "GPS Rx: %lu bytes", currentRxCount);
-          lastRxCount = currentRxCount;
-        } else if (currentRxCount > 0) {
-          LCD_DisplayDebug(0, "GPS Rx: %lu live", currentRxCount);
-        } else {
-          LCD_DisplayDebug(0, "GPS Rx: waiting");
-        }
+    //     if (currentRxCount != lastRxCount) {
+    //       LCD_DisplayDebug(0, "GPS Rx: %lu bytes", currentRxCount);
+    //       lastRxCount = currentRxCount;
+    //     } else if (currentRxCount > 0) {
+    //       LCD_DisplayDebug(0, "GPS Rx: %lu live", currentRxCount);
+    //     } else {
+    //       LCD_DisplayDebug(0, "GPS Rx: waiting");
+    //     }
+    //   }
+    // }
+
+    if ((Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING) &&
+        !stopMsgActive && !errorMsgActive) {
+      if ((HAL_GetTick() - lastUploadDisplayTick) >= 1000U) {
+        lastUploadDisplayTick = HAL_GetTick();
+        LCD_DisplayUploadStatus();
       }
+
+      AudioUploader_Process();
     }
 
     /* USER CODE END WHILE */

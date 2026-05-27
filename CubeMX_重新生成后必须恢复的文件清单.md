@@ -162,7 +162,10 @@ CubeMX 生成的 `sd_diskio.c` 默认通常是：
 必须包含至少这些文件：
 
 ```cmake
-	${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/audio_buffer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/four_g_mqtt.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/audio_uploader.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/base64_codec.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/audio_buffer.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/recorder.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/wav_format.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/lcd_display.c
@@ -173,8 +176,8 @@ CubeMX 生成的 `sd_diskio.c` 默认通常是：
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/led.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/gps.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tts_player.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tts_start_record.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tts_stop_record.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tts_start_record.c
 ```
 
 如果缺少这些项，表现通常是：

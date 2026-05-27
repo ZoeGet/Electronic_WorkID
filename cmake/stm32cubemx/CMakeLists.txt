@@ -34,22 +34,6 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/spi.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tim.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/usart.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/four_g_mqtt.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/audio_uploader.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/base64_codec.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/audio_buffer.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/recorder.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/wav_format.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/lcd_display.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/key.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/audio_detect.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/st7735.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/fonts.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/led.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/gps.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tts_player.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tts_stop_record.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tts_start_record.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/stm32l4xx_it.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/stm32l4xx_hal_msp.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/sysmem.c
@@ -111,8 +95,7 @@ set(MX_LINK_DIRS
 set(MX_LINK_LIBS 
     STM32_Drivers
     ${TOOLCHAIN_LINK_LIBRARIES}
-    FatFs
-	
+    FatFs	
 )
 # Interface library for includes and symbols
 add_library(stm32cubemx INTERFACE)

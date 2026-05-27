@@ -44,7 +44,22 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    Core/Src/audio_buffer.c
+    Core/Src/audio_detect.c
+    Core/Src/audio_uploader.c
+    Core/Src/base64_codec.c
+    Core/Src/fonts.c
+    Core/Src/four_g_mqtt.c
+    Core/Src/gps.c
+    Core/Src/key.c
+    Core/Src/lcd_display.c
+    Core/Src/led.c
+    Core/Src/recorder.c
+    Core/Src/st7735.c
+    Core/Src/tts_player.c
+    Core/Src/tts_start_record.c
+    Core/Src/tts_stop_record.c
+    Core/Src/wav_format.c
 )
 
 # Add include paths

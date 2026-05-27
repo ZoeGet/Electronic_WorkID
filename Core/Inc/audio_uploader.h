@@ -25,6 +25,7 @@ void AudioUploader_Init(void);
 AudioUploaderResult_t AudioUploader_EnqueueFile(const char *filename, uint32_t session_id, bool final_file);
 void AudioUploader_MarkLastQueuedFileFinal(uint32_t session_id);
 void AudioUploader_Process(void);
+void AudioUploader_Abort(void);
 bool AudioUploader_IsBusy(void);
 AudioUploaderResult_t AudioUploader_GetLastResult(void);
 FourGMqttResult_t AudioUploader_GetLastMqttResult(void);
