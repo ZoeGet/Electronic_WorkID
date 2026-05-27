@@ -8,12 +8,12 @@
 
 #define AUDIO_UPLOAD_TOPIC              "asr/device/CARD0001/audio/chunk"
 #define AUDIO_UPLOAD_QUEUE_DEPTH        8U
-#define AUDIO_UPLOAD_PCM_CHUNK_BYTES    512U
-#define AUDIO_UPLOAD_B64_BUFFER_SIZE    685U
-#define AUDIO_UPLOAD_PAYLOAD_SIZE       900U
-#define AUDIO_UPLOAD_MIN_INTERVAL_MS    50U
-#define AUDIO_UPLOAD_FALLBACK_TIME_MS   1779195600000ULL
-#define AUDIO_UPLOAD_RETRY_DELAY_MS     10000U
+#define AUDIO_UPLOAD_PCM_CHUNK_BYTES    128U         //PCM每段大小
+#define AUDIO_UPLOAD_B64_BUFFER_SIZE    173U         //Base64编码后每段大小
+#define AUDIO_UPLOAD_PAYLOAD_SIZE       420U         //Payload大小
+#define AUDIO_UPLOAD_MIN_INTERVAL_MS    1000U        //最小间隔时间，单位ms
+#define AUDIO_UPLOAD_FALLBACK_TIME_MS   1779195600000ULL       //默认时间戳
+#define AUDIO_UPLOAD_RETRY_DELAY_MS     10000U       //重试间隔时间，单位ms
 
 typedef struct {
     char filename[AUDIO_UPLOADER_FILENAME_MAX];
@@ -118,11 +118,73 @@ static AudioUploaderResult_t AudioUploader_LoadNextFile(void)
     return AUDIO_UPLOADER_OK;
 }
 
+static bool AudioUploader_AppendText(char *buffer, uint16_t buffer_size, uint16_t *offset, const char *text)
+{
+    uint16_t text_len;
+
+    if ((buffer == NULL) || (offset == NULL) || (text == NULL)) {
+        return false;
+    }
+
+    text_len = (uint16_t)strlen(text);
+    if (((uint32_t)(*offset) + text_len) >= buffer_size) {
+        return false;
+    }
+
+    memcpy(&buffer[*offset], text, text_len);
+    *offset = (uint16_t)(*offset + text_len);
+    buffer[*offset] = '\0';
+    return true;
+}
+
+static bool AudioUploader_AppendUInt32(char *buffer, uint16_t buffer_size, uint16_t *offset, uint32_t value)
+{
+    char digits[10];
+    uint8_t count = 0U;
+
+    do {
+        digits[count++] = (char)('0' + (value % 10U));
+        value /= 10U;
+    } while ((value != 0U) && (count < sizeof(digits)));
+
+    while (count > 0U) {
+        char ch[2];
+        ch[0] = digits[--count];
+        ch[1] = '\0';
+        if (!AudioUploader_AppendText(buffer, buffer_size, offset, ch)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool AudioUploader_AppendUInt64(char *buffer, uint16_t buffer_size, uint16_t *offset, uint64_t value)
+{
+    char digits[20];
+    uint8_t count = 0U;
+
+    do {
+        digits[count++] = (char)('0' + (value % 10ULL));
+        value /= 10ULL;
+    } while ((value != 0ULL) && (count < sizeof(digits)));
+
+    while (count > 0U) {
+        char ch[2];
+        ch[0] = digits[--count];
+        ch[1] = '\0';
+        if (!AudioUploader_AppendText(buffer, buffer_size, offset, ch)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static AudioUploaderResult_t AudioUploader_PrepareChunkPayload(const uint8_t *pcm, uint16_t pcm_length, bool is_final)
 {
     uint16_t encoded_length;
-    int written;
-    const char *final_text = is_final ? "true" : "false";
+    uint16_t offset = 0U;
 
     if ((pcm == NULL) || (pcm_length == 0U)) {
         gAudioUploader.last_result = AUDIO_UPLOADER_INVALID_PARAM;
@@ -135,15 +197,18 @@ static AudioUploaderResult_t AudioUploader_PrepareChunkPayload(const uint8_t *pc
         return gAudioUploader.last_result;
     }
 
-    written = snprintf(gAudioUploader.payload, sizeof(gAudioUploader.payload),
-                       "{\"session_id\":\"%lu\",\"sequence\":%u,\"timestamp\":%llu,\"is_final\":%s,\"audio_base64\":\"%s\",\"format\":\"pcm\"}",
-                       (unsigned long)gAudioUploader.active_item.session_id,
-                       (unsigned int)gAudioUploader.session_sequence,
-                       (unsigned long long)gAudioUploader.session_timestamp_ms,
-                       final_text,
-                       gAudioUploader.base64);
-
-    if ((written < 0) || ((uint32_t)written >= sizeof(gAudioUploader.payload))) {
+    gAudioUploader.payload[0] = '\0';
+    if (!AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, "{\"session_id\":\"") ||
+        !AudioUploader_AppendUInt32(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, gAudioUploader.active_item.session_id) ||
+        !AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, "\",\"sequence\":") ||
+        !AudioUploader_AppendUInt32(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, gAudioUploader.session_sequence) ||
+        !AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, ",\"timestamp\":") ||
+        !AudioUploader_AppendUInt64(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, gAudioUploader.session_timestamp_ms) ||
+        !AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, ",\"is_final\":") ||
+        !AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, is_final ? "true" : "false") ||
+        !AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, ",\"audio_base64\":\"") ||
+        !AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, gAudioUploader.base64) ||
+        !AudioUploader_AppendText(gAudioUploader.payload, sizeof(gAudioUploader.payload), &offset, "\",\"format\":\"pcm\"}")) {
         gAudioUploader.last_result = AUDIO_UPLOADER_ENCODE_ERROR;
         return gAudioUploader.last_result;
     }
@@ -352,30 +417,6 @@ void AudioUploader_Process(void)
             gAudioUploader.last_result = AUDIO_UPLOADER_MQTT_ERROR;
             gAudioUploader.mqtt_retry_tick = 0U;
         }
-        return;
-    }
-
-    {
-        static const char test_payload[] = "{\"session_id\":\"261\",\"sequence\":0,\"timestamp\":1779195600000,\"is_final\":true,\"audio_base64\":\"BgD8/+j/6v/o/+D/1P/C/7b/uv+2/+j/CAAIACgALAAsAEAAUABW\",\"format\":\"pcm\"}";
-
-        if (gAudioUploader.file_open) {
-            (void)f_close(&gAudioUploader.file);
-            gAudioUploader.file_open = false;
-        }
-
-        gAudioUploader.pending_chunk_start = 0U;
-        gAudioUploader.pending_pcm_length = 0U;
-        gAudioUploader.pending_final_chunk = true;
-        if (FourG_MQTT_AsyncPublishRawStart(AUDIO_UPLOAD_TOPIC, test_payload, (uint16_t)strlen(test_payload)) != FOUR_G_MQTT_OK) {
-            gAudioUploader.active_item_valid = false;
-            gAudioUploader.dropped_files++;
-            gAudioUploader.last_result = AUDIO_UPLOADER_MQTT_ERROR;
-            gAudioUploader.connected_session_id = 0U;
-            gAudioUploader.mqtt_retry_tick = 0U;
-            return;
-        }
-
-        gAudioUploader.state = AUDIO_UPLOAD_STATE_PUBLISH_WAIT;
         return;
     }
 

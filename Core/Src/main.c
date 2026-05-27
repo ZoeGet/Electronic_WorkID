@@ -178,6 +178,7 @@ int main(void)
   static bool soundDisplayState = false;      // 声音检测显示状态（旧功能保留）
   static bool gpsDisplayState = false;        // GPS 显示状态
   static uint32_t lastUploadDisplayTick = 0U; // 上一次上传状态刷新时间
+  static uint32_t uploadEnableTick = 0U;      // 停止录音后延迟启动上传的时间点
   static bool stopMsgActive = false;          // 停止录音提示是否处于显示中
   static uint32_t stopMsgStartTick = 0U;      // 停止录音提示起始时间
   static bool errorMsgActive = false;         // SD 错误提示显示中
@@ -220,6 +221,7 @@ int main(void)
 
       if (Recorder_GetState(&gRecorder) == RECORDER_STATE_READY) {
         AudioUploader_Abort();
+        uploadEnableTick = 0U;
         gRecordingSessionId++;
         if (gRecordingSessionId == 0U) {
           gRecordingSessionId = 1U;
@@ -322,6 +324,7 @@ int main(void)
           LCD_DisplayRecordingStopped();
           stopMsgActive = true;
           stopMsgStartTick = HAL_GetTick();
+          uploadEnableTick = HAL_GetTick() + 5000U;
           errorMsgActive = false;
           gCurrentSessionId = 0U;
           gCurrentSliceIndex = 0U;
@@ -557,7 +560,9 @@ int main(void)
         LCD_DisplayUploadStatus();
       }
 
-      AudioUploader_Process();
+      if ((uploadEnableTick == 0U) || ((int32_t)(HAL_GetTick() - uploadEnableTick) >= 0)) {
+        AudioUploader_Process();
+      }
     }
 
     /* USER CODE END WHILE */
