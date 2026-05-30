@@ -6,6 +6,7 @@
 #include "string.h"
 #include "gps.h"
 #include "audio_uploader.h"
+#include "display_chinese.h"
 
 #define WORK_CARD_CLOCK_X          18U
 #define WORK_CARD_CLOCK_Y          34U
@@ -113,7 +114,7 @@ void LCD_DisplayClockValue(uint8_t hour, uint8_t minute)
 void LCD_DisplayWorkCardInit(void)
 {
   ST7735_FillScreen(WORK_CARD_BG_COLOR);
-  ST7735_DrawString(13, 8, "Ling Huang Smart ID", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  DisplayChinese_DrawWorkCardTitle(16, 8, ST7735_BLACK, WORK_CARD_BG_COLOR);
   ST7735_DrawString(120, 22, "LOGO", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
   LCD_DisplayClockInvalid();
   ST7735_DrawString(38, 88, "Name:XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
