@@ -23,11 +23,11 @@
 //////////////////////////////////////////////////////////
 // 宽度和高度比现实大一点，避免清屏时遗留边上像素点，实际厂商标的屏幕尺寸是 128x160
 #define ST7735_WIDTH  161
-#define ST7735_HEIGHT 129
+#define ST7735_HEIGHT 130
 //////////////////////////////////////////////////////////
 
 // Screen Direction
-#define ST7735_ROTATION 1  // 屏幕方向：0=正常，1=90度，2=180度，3=270度
+#define ST7735_ROTATION 3  // 屏幕方向：0=正常，1=90度，2=180度，3=270度
 // Color Mode: RGB or BGR
 #define ST7735_MADCTL_RGB 0x00
 #define ST7735_MADCTL_BGR 0x08

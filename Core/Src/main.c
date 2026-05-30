@@ -188,10 +188,17 @@ int main(void)
   static uint32_t startRecordingDelayTick = 0U;
   static uint8_t key0PrevPressed = 0U;        // KEY0 上一次稳定按下状态
   static uint8_t key1PrevPressed = 0U;        // KEY1 上一次稳定按下状态
+  static uint8_t key2PrevPressed = 0U;        // KEY2 上一次稳定按下状态
+  static bool workCardDisplayActive = false;  // 电子工牌测试界面显示中
+  static uint32_t workCardClockTick = 0U;     // 电子工牌软件时钟节拍
+  static uint8_t workCardHour = 15U;
+  static uint8_t workCardMinute = 47U;
+  static uint8_t workCardSecond = 0U;
   static uint32_t lastGpsUploadTick = 0U;     // 上一次 4G 上传 GPS 的时间
   static bool gpsLocationUploaded = false;    // 是否已经上传过有效 GPS 位置
   uint8_t key0Pressed = 0U;
   uint8_t key1Pressed = 0U;
+  uint8_t key2Pressed = 0U;
   RecorderResult_t rec_ret = RECORDER_OK;
 
   while (1)
@@ -294,9 +301,10 @@ int main(void)
     */
     (void)soundDisplayState;
 
-    /* 独立读取两个按键，避免共享状态机导致 KEY1 被漏检 */
+    /* 独立读取三个按键，避免共享状态机导致按键被漏检 */
     key0Pressed = (KEY0 == KEY0_ON) ? 1U : 0U;
     key1Pressed = (KEY1 == KEY1_ON) ? 1U : 0U;
+    key2Pressed = (KEY2 == KEY2_ON) ? 1U : 0U;
 
     if ((key0Pressed != 0U) && (key0PrevPressed == 0U)) {
       /* KEY0(PA7): 开始录音 */
@@ -305,6 +313,7 @@ int main(void)
           !waitingStartRecordingDelay &&
           !TTS_Player_IsBusy()) {
         if (TTS_Player_PlayStartRecord()) {
+          workCardDisplayActive = false;
           pendingStartRecordingAfterTts = true;
           stopMsgActive = false;
           errorMsgActive = false;
@@ -321,6 +330,7 @@ int main(void)
             (void)AudioUploader_EnqueueFile(gCurrentWavName, gCurrentSessionId, true);
             AudioUploader_MarkLastQueuedFileFinal(gCurrentSessionId);
           }
+          workCardDisplayActive = false;
           LCD_DisplayRecordingStopped();
           stopMsgActive = true;
           stopMsgStartTick = HAL_GetTick();
@@ -337,8 +347,36 @@ int main(void)
       }
     }
 
+    if ((key2Pressed != 0U) && (key2PrevPressed == 0U)) {
+      /* KEY2(PA5): 进入电子工牌测试界面 */
+      workCardDisplayActive = true;
+      workCardClockTick = HAL_GetTick();
+      workCardHour = 15U;
+      workCardMinute = 47U;
+      workCardSecond = 0U;
+      stopMsgActive = false;
+      errorMsgActive = false;
+      gpsDisplayState = false;
+      LCD_DisplayWorkCardInit();
+    }
+
+    if (workCardDisplayActive && ((HAL_GetTick() - workCardClockTick) >= 1000U)) {
+      workCardClockTick += 1000U;
+      workCardSecond++;
+      if (workCardSecond >= 60U) {
+        workCardSecond = 0U;
+        workCardMinute++;
+        if (workCardMinute >= 60U) {
+          workCardMinute = 0U;
+          workCardHour = (workCardHour + 1U) % 24U;
+        }
+        LCD_DisplayClockValue(workCardHour, workCardMinute);
+      }
+    }
+
     key0PrevPressed = key0Pressed;
     key1PrevPressed = key1Pressed;
+    key2PrevPressed = key2Pressed;
 
     if (stopMsgActive && ((HAL_GetTick() - stopMsgStartTick) >= 2000U)) {
       LCD_DisplayInit();
@@ -513,7 +551,7 @@ int main(void)
         }
       }
 
-      if (!stopMsgActive && !errorMsgActive &&
+      if (!workCardDisplayActive && !stopMsgActive && !errorMsgActive &&
           (Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING))
       {
         if ((gpsParsed != 0U) || !gpsDisplayState)
@@ -553,7 +591,8 @@ int main(void)
     //   }
     // }
 
-    if ((Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING) &&
+    if (!workCardDisplayActive &&
+        (Recorder_GetState(&gRecorder) != RECORDER_STATE_RECORDING) &&
         !stopMsgActive && !errorMsgActive) {
       if ((HAL_GetTick() - lastUploadDisplayTick) >= 1000U) {
         lastUploadDisplayTick = HAL_GetTick();

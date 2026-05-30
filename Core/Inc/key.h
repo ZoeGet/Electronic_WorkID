@@ -21,6 +21,7 @@
 //将KEYx定义为对应引脚的读取值
 #define KEY0 HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_7)
 #define KEY1 HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_6)
+#define KEY2 HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_5)
 
 // #define KEY0 HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13)
 // #define KEY1 HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_0)
@@ -29,12 +30,15 @@
 //给不同的KEY设定不同的对应数字，表示对应KEY按下;也表示不同的优先级,数字越小优先级越高;不用0，因为0是函数的默认返回值
 #define KEY0_PRES 1
 #define KEY1_PRES 2
+#define KEY2_PRES 3
 
 // 按键电平定义（按原理图：按下短接到 GND，因此按下=低电平）
 #define KEY0_ON GPIO_PIN_RESET
 #define KEY0_OFF GPIO_PIN_SET
 #define KEY1_ON GPIO_PIN_RESET
 #define KEY1_OFF GPIO_PIN_SET
+#define KEY2_ON GPIO_PIN_RESET
+#define KEY2_OFF GPIO_PIN_SET
 /*-----------------------------Function---------------------------------------*/
 uint8_t KEY_Scan1(void);
 uint8_t KEY_Scan2(void);

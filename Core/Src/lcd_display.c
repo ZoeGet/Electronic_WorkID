@@ -7,6 +7,89 @@
 #include "gps.h"
 #include "audio_uploader.h"
 
+#define WORK_CARD_CLOCK_X          18U
+#define WORK_CARD_CLOCK_Y          34U
+#define WORK_CARD_CLOCK_DIGIT_W    24U
+#define WORK_CARD_CLOCK_DIGIT_H    42U
+#define WORK_CARD_CLOCK_THICKNESS  5U
+#define WORK_CARD_CLOCK_GAP        3U
+#define WORK_CARD_CLOCK_COLOR      ST7735_BLACK
+#define WORK_CARD_CLOCK_BG_COLOR   ST7735_WHITE
+#define WORK_CARD_BG_COLOR         ST7735_WHITE
+
+static void LCD_WorkCardFillSegment(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+  ST7735_FillRect(x, y, w, h, WORK_CARD_CLOCK_COLOR);
+}
+
+static void LCD_WorkCardDrawDigit(uint16_t x, uint16_t y, uint8_t digit)
+{
+  static const uint8_t segMap[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66,
+    0x6D, 0x7D, 0x07, 0x7F, 0x6F
+  };
+  uint8_t seg;
+  uint16_t t = WORK_CARD_CLOCK_THICKNESS;
+  uint16_t w = WORK_CARD_CLOCK_DIGIT_W;
+  uint16_t h = WORK_CARD_CLOCK_DIGIT_H;
+  uint16_t midY = y + h / 2U - t / 2U;
+
+  if (digit > 9U) {
+    return;
+  }
+
+  seg = segMap[digit];
+
+  if ((seg & 0x01U) != 0U) LCD_WorkCardFillSegment(x + t, y, w - 2U * t, t);
+  if ((seg & 0x02U) != 0U) LCD_WorkCardFillSegment(x + w - t, y + t, t, h / 2U - t);
+  if ((seg & 0x04U) != 0U) LCD_WorkCardFillSegment(x + w - t, midY + t, t, h / 2U - t);
+  if ((seg & 0x08U) != 0U) LCD_WorkCardFillSegment(x + t, y + h - t, w - 2U * t, t);
+  if ((seg & 0x10U) != 0U) LCD_WorkCardFillSegment(x, midY + t, t, h / 2U - t);
+  if ((seg & 0x20U) != 0U) LCD_WorkCardFillSegment(x, y + t, t, h / 2U - t);
+  if ((seg & 0x40U) != 0U) LCD_WorkCardFillSegment(x + t, midY, w - 2U * t, t);
+}
+
+static void LCD_WorkCardDrawColon(uint16_t x, uint16_t y)
+{
+  ST7735_FillRect(x, y + 12U, 5U, 5U, WORK_CARD_CLOCK_COLOR);
+  ST7735_FillRect(x, y + 27U, 5U, 5U, WORK_CARD_CLOCK_COLOR);
+}
+
+void LCD_DisplayClockValue(uint8_t hour, uint8_t minute)
+{
+  uint16_t x = WORK_CARD_CLOCK_X;
+
+  hour %= 24U;
+  minute %= 60U;
+
+  ST7735_FillRect(WORK_CARD_CLOCK_X - 2U, WORK_CARD_CLOCK_Y - 2U, 126U, 48U, WORK_CARD_CLOCK_BG_COLOR);
+
+  LCD_WorkCardDrawDigit(x, WORK_CARD_CLOCK_Y, hour / 10U);
+  x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawDigit(x, WORK_CARD_CLOCK_Y, hour % 10U);
+  x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawColon(x + 2U, WORK_CARD_CLOCK_Y);
+  x += 10U + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawDigit(x, WORK_CARD_CLOCK_Y, minute / 10U);
+  x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawDigit(x, WORK_CARD_CLOCK_Y, minute % 10U);
+}
+
+void LCD_DisplayWorkCardInit(void)
+{
+  ST7735_FillScreen(WORK_CARD_BG_COLOR);
+  ST7735_DrawString(13, 8, "Jinlu Gas Smart ID", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  ST7735_DrawString(120, 22, "LOGO", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  LCD_DisplayClockValue(15U, 47U);
+  ST7735_DrawString(38, 88, "Name:XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  ST7735_DrawString(38, 102, "Job :XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  ST7735_DrawString(38, 116, "Dept:XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+}
+
 static const char *LCD_GetMqttResultText(FourGMqttResult_t result)
 {
   switch (result) {
