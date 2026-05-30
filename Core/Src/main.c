@@ -284,6 +284,10 @@ int main(void)
   uint8_t key2Pressed = 0U;
   RecorderResult_t rec_ret = RECORDER_OK;
 
+  key0PrevPressed = (KEY0 == KEY0_ON) ? 1U : 0U;
+  key1PrevPressed = (KEY1 == KEY1_ON) ? 1U : 0U;
+  key2PrevPressed = (KEY2 == KEY2_ON) ? 1U : 0U;
+
   while (1)
   {
     // LED_Process();
