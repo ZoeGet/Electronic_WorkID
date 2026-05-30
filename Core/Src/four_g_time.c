@@ -18,6 +18,11 @@ typedef struct {
 } FourGTimeRaw_t;
 
 static UART_HandleTypeDef *gFourGTimeUart = NULL;
+static char gFourGTimeAsyncResponse[FOUR_G_TIME_RESPONSE_SIZE];
+static uint16_t gFourGTimeAsyncIndex = 0U;
+static uint32_t gFourGTimeAsyncStartTick = 0U;
+static uint32_t gFourGTimeAsyncTimeoutMs = 0U;
+static bool gFourGTimeAsyncActive = false;
 
 static bool FourG_Time_IsLeapYear(uint16_t year)
 {
@@ -54,6 +59,15 @@ static bool FourG_Time_IsValid(const FourGTime_t *time)
 
   days = FourG_Time_DaysInMonth(time->year, time->month);
   return (days != 0U) && (time->day >= 1U) && (time->day <= days);
+}
+
+static bool FourG_Time_IsDefaultUnsyncedRawTime(const FourGTimeRaw_t *raw)
+{
+  if (raw == NULL) {
+    return true;
+  }
+
+  return (raw->hour == 0U) && (raw->minute == 0U) && (raw->second == 0U);
 }
 
 static void FourG_Time_AddOneDay(FourGTime_t *time)
@@ -270,6 +284,10 @@ static FourGTimeResult_t FourG_Time_ParseResponse(const char *response, FourGTim
     return FOUR_G_TIME_PARSE_ERROR;
   }
 
+  if (FourG_Time_IsDefaultUnsyncedRawTime(&raw)) {
+    return FOUR_G_TIME_INVALID_TIME;
+  }
+
   time->year = raw.year;
   time->month = raw.month;
   time->day = raw.day;
@@ -309,6 +327,89 @@ const char *FourG_Time_ResultText(FourGTimeResult_t result)
     default:
       return "UNK";
   }
+}
+
+void FourG_Time_AsyncCancel(void)
+{
+  gFourGTimeAsyncActive = false;
+  gFourGTimeAsyncIndex = 0U;
+  memset(gFourGTimeAsyncResponse, 0, sizeof(gFourGTimeAsyncResponse));
+}
+
+FourGTimeResult_t FourG_Time_AsyncStart(uint32_t timeout_ms)
+{
+  if (gFourGTimeUart == NULL) {
+    return FOUR_G_TIME_INVALID_PARAM;
+  }
+
+  FourG_Time_AsyncCancel();
+  (void)HAL_UART_AbortReceive(gFourGTimeUart);
+  (void)HAL_UART_AbortTransmit(gFourGTimeUart);
+  __HAL_UART_CLEAR_OREFLAG(gFourGTimeUart);
+  __HAL_UART_CLEAR_FEFLAG(gFourGTimeUart);
+  __HAL_UART_CLEAR_NEFLAG(gFourGTimeUart);
+  __HAL_UART_CLEAR_PEFLAG(gFourGTimeUart);
+
+  if (HAL_UART_Transmit(gFourGTimeUart, (uint8_t *)FOUR_G_TIME_COMMAND,
+                        (uint16_t)strlen(FOUR_G_TIME_COMMAND), FOUR_G_TIME_UART_TX_TIMEOUT_MS) != HAL_OK) {
+    return FOUR_G_TIME_UART_ERROR;
+  }
+
+  gFourGTimeAsyncStartTick = HAL_GetTick();
+  gFourGTimeAsyncTimeoutMs = timeout_ms;
+  gFourGTimeAsyncActive = true;
+  return FOUR_G_TIME_OK;
+}
+
+FourGTimeAsyncStatus_t FourG_Time_AsyncProcess(FourGTime_t *time, FourGTimeResult_t *result)
+{
+  uint8_t byte;
+
+  if (result != NULL) {
+    *result = FOUR_G_TIME_OK;
+  }
+
+  if ((gFourGTimeUart == NULL) || (time == NULL) || (result == NULL)) {
+    if (result != NULL) {
+      *result = FOUR_G_TIME_INVALID_PARAM;
+    }
+    return FOUR_G_TIME_ASYNC_ERROR;
+  }
+
+  if (!gFourGTimeAsyncActive) {
+    return FOUR_G_TIME_ASYNC_IDLE;
+  }
+
+  while (HAL_UART_Receive(gFourGTimeUart, &byte, 1U, 0U) == HAL_OK) {
+    if (gFourGTimeAsyncIndex < (sizeof(gFourGTimeAsyncResponse) - 1U)) {
+      gFourGTimeAsyncResponse[gFourGTimeAsyncIndex++] = (char)byte;
+      gFourGTimeAsyncResponse[gFourGTimeAsyncIndex] = '\0';
+    }
+
+    if (strstr(gFourGTimeAsyncResponse, "ERROR") != NULL) {
+      gFourGTimeAsyncActive = false;
+      *result = FOUR_G_TIME_UART_ERROR;
+      return FOUR_G_TIME_ASYNC_ERROR;
+    }
+
+    if (strstr(gFourGTimeAsyncResponse, "\r\nOK\r\n") != NULL) {
+      gFourGTimeAsyncActive = false;
+      if (strstr(gFourGTimeAsyncResponse, "+CCLK:") == NULL) {
+        *result = FOUR_G_TIME_PARSE_ERROR;
+        return FOUR_G_TIME_ASYNC_ERROR;
+      }
+      *result = FourG_Time_ParseResponse(gFourGTimeAsyncResponse, time);
+      return (*result == FOUR_G_TIME_OK) ? FOUR_G_TIME_ASYNC_DONE : FOUR_G_TIME_ASYNC_ERROR;
+    }
+  }
+
+  if ((HAL_GetTick() - gFourGTimeAsyncStartTick) >= gFourGTimeAsyncTimeoutMs) {
+    gFourGTimeAsyncActive = false;
+    *result = (gFourGTimeAsyncIndex == 0U) ? FOUR_G_TIME_TIMEOUT : FOUR_G_TIME_PARSE_ERROR;
+    return FOUR_G_TIME_ASYNC_ERROR;
+  }
+
+  return FOUR_G_TIME_ASYNC_BUSY;
 }
 
 FourGTimeResult_t FourG_Time_Get(FourGTime_t *time, uint32_t timeout_ms)

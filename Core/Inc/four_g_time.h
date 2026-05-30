@@ -27,8 +27,18 @@ typedef enum {
   FOUR_G_TIME_INVALID_TIME
 } FourGTimeResult_t;
 
+typedef enum {
+  FOUR_G_TIME_ASYNC_IDLE = 0,
+  FOUR_G_TIME_ASYNC_BUSY,
+  FOUR_G_TIME_ASYNC_DONE,
+  FOUR_G_TIME_ASYNC_ERROR
+} FourGTimeAsyncStatus_t;
+
 void FourG_Time_Init(UART_HandleTypeDef *huart);
 FourGTimeResult_t FourG_Time_Get(FourGTime_t *time, uint32_t timeout_ms);
+FourGTimeResult_t FourG_Time_AsyncStart(uint32_t timeout_ms);
+FourGTimeAsyncStatus_t FourG_Time_AsyncProcess(FourGTime_t *time, FourGTimeResult_t *result);
+void FourG_Time_AsyncCancel(void);
 const char *FourG_Time_ResultText(FourGTimeResult_t result);
 
 #ifdef __cplusplus

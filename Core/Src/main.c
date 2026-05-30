@@ -60,6 +60,7 @@ typedef enum {
 typedef enum {
   WORK_CARD_TIME_IDLE = 0,
   WORK_CARD_TIME_WAIT_RETRY,
+  WORK_CARD_TIME_QUERY_BUSY,
   WORK_CARD_TIME_OK,
   WORK_CARD_TIME_FAILED
 } WorkCardTimeState_t;
@@ -395,6 +396,7 @@ int main(void)
           !waitingStartRecordingDelay &&
           !TTS_Player_IsBusy()) {
         if (TTS_Player_PlayStartRecord()) {
+          FourG_Time_AsyncCancel();
           workCardDisplayActive = false;
           pendingStartRecordingAfterTts = true;
           stopMsgActive = false;
@@ -412,6 +414,7 @@ int main(void)
             (void)AudioUploader_EnqueueFile(gCurrentWavName, gCurrentSessionId, true);
             AudioUploader_MarkLastQueuedFileFinal(gCurrentSessionId);
           }
+          FourG_Time_AsyncCancel();
           workCardDisplayActive = false;
           LCD_DisplayRecordingStopped();
           stopMsgActive = true;
@@ -432,6 +435,7 @@ int main(void)
     if ((key2Pressed != 0U) && (key2PrevPressed == 0U)) {
       /* KEY2(PA5): 进入电子工牌测试界面并启动 4G 时间同步 */
       workCardDisplayActive = true;
+      FourG_Time_AsyncCancel();
       workCardTimeState = WORK_CARD_TIME_WAIT_RETRY;
       workCardTimeTryCount = 0U;
       workCardTimeNextTryTick = HAL_GetTick();
@@ -453,14 +457,19 @@ int main(void)
           FourG_MQTT_Init(&huart1);
 
           if ((timeResult == FOUR_G_TIME_OK) && App_SetRtcFromFourGTime(&networkTime)) {
-            workCardTimeState = WORK_CARD_TIME_OK;
             workCardClockRefreshTick = 0U;
             (void)App_DisplayRtcClock(true);
+
+            if (workCardTimeTryCount >= 5U) {
+              workCardTimeState = WORK_CARD_TIME_OK;
+            } else {
+              workCardTimeNextTryTick = HAL_GetTick() + 1000U;
+            }
           } else if (workCardTimeTryCount >= 5U) {
             workCardTimeState = WORK_CARD_TIME_FAILED;
             LCD_DisplayClockInvalid();
           } else {
-            workCardTimeNextTryTick = HAL_GetTick() + 2000U;
+            workCardTimeNextTryTick = HAL_GetTick() + 1000U;
           }
         }
       } else if ((workCardTimeState == WORK_CARD_TIME_OK) &&
