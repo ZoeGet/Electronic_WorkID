@@ -7,6 +7,7 @@
 #include "gps.h"
 #include "audio_uploader.h"
 #include "display_chinese.h"
+#include "image.h"
 
 #define WORK_CARD_CLOCK_X          18U
 #define WORK_CARD_CLOCK_Y          34U
@@ -17,6 +18,19 @@
 #define WORK_CARD_CLOCK_COLOR      ST7735_BLACK
 #define WORK_CARD_CLOCK_BG_COLOR   ST7735_WHITE
 #define WORK_CARD_BG_COLOR         ST7735_WHITE
+#define WORK_CARD_IMAGE_X          ((ST7735_WIDTH - WORK_CARD_IMAGE_WIDTH) / 2U)
+#define WORK_CARD_IMAGE_Y          (ST7735_HEIGHT - WORK_CARD_IMAGE_HEIGHT)
+
+static void LCD_WorkCardDrawBackground(void)
+{
+  ST7735_FillScreen(WORK_CARD_BG_COLOR);
+  ST7735_DrawImage(WORK_CARD_IMAGE_X, WORK_CARD_IMAGE_Y, WORK_CARD_IMAGE_WIDTH, WORK_CARD_IMAGE_HEIGHT, &gImage_image2[WORK_CARD_IMAGE_HEADER_SIZE]);
+}
+
+static void LCD_WorkCardRestoreBackgroundRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+  ST7735_FillRect(x, y, w, h, WORK_CARD_BG_COLOR);
+}
 
 static void LCD_WorkCardFillSegment(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 {
@@ -70,7 +84,7 @@ void LCD_DisplayClockInvalid(void)
 {
   uint16_t x = WORK_CARD_CLOCK_X;
 
-  ST7735_FillRect(WORK_CARD_CLOCK_X - 2U, WORK_CARD_CLOCK_Y - 2U, 126U, 48U, WORK_CARD_CLOCK_BG_COLOR);
+  LCD_WorkCardRestoreBackgroundRect(WORK_CARD_CLOCK_X - 2U, WORK_CARD_CLOCK_Y - 2U, 126U, 48U);
 
   LCD_WorkCardDrawDash(x, WORK_CARD_CLOCK_Y);
   x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
@@ -94,7 +108,7 @@ void LCD_DisplayClockValue(uint8_t hour, uint8_t minute)
   hour %= 24U;
   minute %= 60U;
 
-  ST7735_FillRect(WORK_CARD_CLOCK_X - 2U, WORK_CARD_CLOCK_Y - 2U, 126U, 48U, WORK_CARD_CLOCK_BG_COLOR);
+  LCD_WorkCardRestoreBackgroundRect(WORK_CARD_CLOCK_X - 2U, WORK_CARD_CLOCK_Y - 2U, 126U, 48U);
 
   LCD_WorkCardDrawDigit(x, WORK_CARD_CLOCK_Y, hour / 10U);
   x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
@@ -113,13 +127,10 @@ void LCD_DisplayClockValue(uint8_t hour, uint8_t minute)
 
 void LCD_DisplayWorkCardInit(void)
 {
-  ST7735_FillScreen(WORK_CARD_BG_COLOR);
-  DisplayChinese_DrawWorkCardTitle(16, 8, ST7735_BLACK, WORK_CARD_BG_COLOR);
-  ST7735_DrawString(120, 22, "LOGO", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  LCD_WorkCardDrawBackground();
+  DisplayChinese_DrawWorkCardTitleTransparent(16, 8, ST7735_BLACK);
   LCD_DisplayClockInvalid();
-  ST7735_DrawString(38, 88, "Name:XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
-  ST7735_DrawString(38, 102, "Job :XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
-  ST7735_DrawString(38, 116, "Dept:XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  DisplayChinese_DrawWorkCardInfoTransparent(16, 82, ST7735_BLACK);
 }
 
 static const char *LCD_GetMqttResultText(FourGMqttResult_t result)

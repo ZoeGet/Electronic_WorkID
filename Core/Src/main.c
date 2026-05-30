@@ -457,8 +457,9 @@ int main(void)
           FourG_MQTT_Init(&huart1);
 
           if ((timeResult == FOUR_G_TIME_OK) && App_SetRtcFromFourGTime(&networkTime)) {
-            workCardClockRefreshTick = 0U;
-            (void)App_DisplayRtcClock(true);
+            bool forceClockRefresh = (workCardClockRefreshTick == 0U);
+            (void)App_DisplayRtcClock(forceClockRefresh);
+            workCardClockRefreshTick = HAL_GetTick();
 
             if (workCardTimeTryCount >= 5U) {
               workCardTimeState = WORK_CARD_TIME_OK;

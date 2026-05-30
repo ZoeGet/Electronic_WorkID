@@ -53,6 +53,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/four_g_mqtt.c
     Core/Src/four_g_time.c
     Core/Src/gps.c
+    Core/Src/image.c
     Core/Src/key.c
     Core/Src/lcd_display.c
     Core/Src/led.c
