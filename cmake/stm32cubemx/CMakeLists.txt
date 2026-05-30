@@ -30,6 +30,7 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/adc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/dac.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/dma.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/rtc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/sdmmc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/spi.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/tim.c
@@ -63,6 +64,8 @@ set(STM32_Drivers_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_exti.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_dac.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_dac_ex.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_rtc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_rtc_ex.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_ll_sdmmc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_sd.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_sd_ex.c

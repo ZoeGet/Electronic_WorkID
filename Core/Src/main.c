@@ -22,6 +22,7 @@
 #include "dac.h"
 #include "dma.h"
 #include "fatfs.h"
+#include "rtc.h"
 #include "sdmmc.h"
 #include "spi.h"
 #include "tim.h"
@@ -41,6 +42,7 @@
 #include "key.h"
 #include "tts_player.h"
 #include "four_g_mqtt.h"
+#include "four_g_time.h"
 #include "audio_uploader.h"
 
 /* USER CODE END Includes */
@@ -54,6 +56,13 @@ typedef enum {
   GPS_UPLOAD_STATE_PUBLISH_WAIT,
   GPS_UPLOAD_STATE_DISCONNECT_WAIT
 } GpsUploadState_t;
+
+typedef enum {
+  WORK_CARD_TIME_IDLE = 0,
+  WORK_CARD_TIME_WAIT_RETRY,
+  WORK_CARD_TIME_OK,
+  WORK_CARD_TIME_FAILED
+} WorkCardTimeState_t;
 
 /* USER CODE END PTD */
 
@@ -102,6 +111,74 @@ static void BuildWavFilename(char *buffer, uint16_t buffer_size, uint32_t sessio
   }
 
   (void)snprintf(buffer, buffer_size, "%lu_%04u.wav", (unsigned long)session_id, (unsigned int)slice_index);
+}
+static uint8_t App_CalcWeekday(uint16_t year, uint8_t month, uint8_t day)
+{
+  static const uint8_t month_offset[12] = {0U, 3U, 2U, 5U, 0U, 3U, 5U, 1U, 4U, 6U, 2U, 4U};
+  uint16_t y = year;
+  uint8_t weekday;
+
+  if ((month < 1U) || (month > 12U)) {
+    return RTC_WEEKDAY_MONDAY;
+  }
+
+  if (month < 3U) {
+    y--;
+  }
+
+  weekday = (uint8_t)((y + y / 4U - y / 100U + y / 400U + month_offset[month - 1U] + day) % 7U);
+  return (weekday == 0U) ? RTC_WEEKDAY_SUNDAY : weekday;
+}
+
+static bool App_SetRtcFromFourGTime(const FourGTime_t *time)
+{
+  RTC_TimeTypeDef rtc_time = {0};
+  RTC_DateTypeDef rtc_date = {0};
+
+  if ((time == NULL) || (time->year < 2000U) || (time->month < 1U) || (time->month > 12U)) {
+    return false;
+  }
+
+  rtc_time.Hours = time->hour;
+  rtc_time.Minutes = time->minute;
+  rtc_time.Seconds = time->second;
+  rtc_time.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  rtc_time.StoreOperation = RTC_STOREOPERATION_RESET;
+
+  rtc_date.Year = (uint8_t)(time->year - 2000U);
+  rtc_date.Month = time->month;
+  rtc_date.Date = time->day;
+  rtc_date.WeekDay = App_CalcWeekday(time->year, time->month, time->day);
+
+  if (HAL_RTC_SetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN) != HAL_OK) {
+    return false;
+  }
+
+  return HAL_RTC_SetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN) == HAL_OK;
+}
+
+static bool App_DisplayRtcClock(bool force_refresh)
+{
+  static uint8_t last_hour = 0xFFU;
+  static uint8_t last_minute = 0xFFU;
+  RTC_TimeTypeDef rtc_time = {0};
+  RTC_DateTypeDef rtc_date = {0};
+
+  if (HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN) != HAL_OK) {
+    return false;
+  }
+
+  if (HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN) != HAL_OK) {
+    return false;
+  }
+
+  if (force_refresh || (rtc_time.Hours != last_hour) || (rtc_time.Minutes != last_minute)) {
+    LCD_DisplayClockValue(rtc_time.Hours, rtc_time.Minutes);
+    last_hour = rtc_time.Hours;
+    last_minute = rtc_time.Minutes;
+  }
+
+  return true;
 }
 /* USER CODE END PFP */
 
@@ -152,8 +229,10 @@ int main(void)
   MX_DAC1_Init();
   MX_TIM6_Init();
   MX_USART1_UART_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   FourG_MQTT_Init(&huart1);
+  FourG_Time_Init(&huart1);
   AudioUploader_Init();
 
   ST7735_Init();
@@ -190,10 +269,13 @@ int main(void)
   static uint8_t key1PrevPressed = 0U;        // KEY1 上一次稳定按下状态
   static uint8_t key2PrevPressed = 0U;        // KEY2 上一次稳定按下状态
   static bool workCardDisplayActive = false;  // 电子工牌测试界面显示中
-  static uint32_t workCardClockTick = 0U;     // 电子工牌软件时钟节拍
-  static uint8_t workCardHour = 15U;
-  static uint8_t workCardMinute = 47U;
-  static uint8_t workCardSecond = 0U;
+  static WorkCardTimeState_t workCardTimeState = WORK_CARD_TIME_IDLE;
+  static uint32_t workCardTimeNextTryTick = 0U;
+  static uint32_t workCardClockRefreshTick = 0U;
+  static uint8_t workCardTimeTryCount = 0U;
+
+
+
   static uint32_t lastGpsUploadTick = 0U;     // 上一次 4G 上传 GPS 的时间
   static bool gpsLocationUploaded = false;    // 是否已经上传过有效 GPS 位置
   uint8_t key0Pressed = 0U;
@@ -348,29 +430,46 @@ int main(void)
     }
 
     if ((key2Pressed != 0U) && (key2PrevPressed == 0U)) {
-      /* KEY2(PA5): 进入电子工牌测试界面 */
+      /* KEY2(PA5): 进入电子工牌测试界面并启动 4G 时间同步 */
       workCardDisplayActive = true;
-      workCardClockTick = HAL_GetTick();
-      workCardHour = 15U;
-      workCardMinute = 47U;
-      workCardSecond = 0U;
+      workCardTimeState = WORK_CARD_TIME_WAIT_RETRY;
+      workCardTimeTryCount = 0U;
+      workCardTimeNextTryTick = HAL_GetTick();
+      workCardClockRefreshTick = 0U;
       stopMsgActive = false;
       errorMsgActive = false;
       gpsDisplayState = false;
       LCD_DisplayWorkCardInit();
     }
 
-    if (workCardDisplayActive && ((HAL_GetTick() - workCardClockTick) >= 1000U)) {
-      workCardClockTick += 1000U;
-      workCardSecond++;
-      if (workCardSecond >= 60U) {
-        workCardSecond = 0U;
-        workCardMinute++;
-        if (workCardMinute >= 60U) {
-          workCardMinute = 0U;
-          workCardHour = (workCardHour + 1U) % 24U;
+    if (workCardDisplayActive) {
+      if (workCardTimeState == WORK_CARD_TIME_WAIT_RETRY) {
+        if ((int32_t)(HAL_GetTick() - workCardTimeNextTryTick) >= 0) {
+          FourGTime_t networkTime;
+          FourGTimeResult_t timeResult;
+
+          workCardTimeTryCount++;
+          timeResult = FourG_Time_Get(&networkTime, 3000U);
+          FourG_MQTT_Init(&huart1);
+
+          if ((timeResult == FOUR_G_TIME_OK) && App_SetRtcFromFourGTime(&networkTime)) {
+            workCardTimeState = WORK_CARD_TIME_OK;
+            workCardClockRefreshTick = 0U;
+            (void)App_DisplayRtcClock(true);
+          } else if (workCardTimeTryCount >= 5U) {
+            workCardTimeState = WORK_CARD_TIME_FAILED;
+            LCD_DisplayClockInvalid();
+          } else {
+            workCardTimeNextTryTick = HAL_GetTick() + 2000U;
+          }
         }
-        LCD_DisplayClockValue(workCardHour, workCardMinute);
+      } else if ((workCardTimeState == WORK_CARD_TIME_OK) &&
+                 ((workCardClockRefreshTick == 0U) || ((HAL_GetTick() - workCardClockRefreshTick) >= 1000U))) {
+        workCardClockRefreshTick = HAL_GetTick();
+        if (!App_DisplayRtcClock(false)) {
+          workCardTimeState = WORK_CARD_TIME_FAILED;
+          LCD_DisplayClockInvalid();
+        }
       }
     }
 
@@ -630,8 +729,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 1;

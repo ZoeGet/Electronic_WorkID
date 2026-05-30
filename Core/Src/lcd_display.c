@@ -55,6 +55,37 @@ static void LCD_WorkCardDrawColon(uint16_t x, uint16_t y)
   ST7735_FillRect(x, y + 27U, 5U, 5U, WORK_CARD_CLOCK_COLOR);
 }
 
+static void LCD_WorkCardDrawDash(uint16_t x, uint16_t y)
+{
+  uint16_t t = WORK_CARD_CLOCK_THICKNESS;
+  uint16_t w = WORK_CARD_CLOCK_DIGIT_W;
+  uint16_t h = WORK_CARD_CLOCK_DIGIT_H;
+  uint16_t midY = y + h / 2U - t / 2U;
+
+  LCD_WorkCardFillSegment(x + t, midY, w - 2U * t, t);
+}
+
+void LCD_DisplayClockInvalid(void)
+{
+  uint16_t x = WORK_CARD_CLOCK_X;
+
+  ST7735_FillRect(WORK_CARD_CLOCK_X - 2U, WORK_CARD_CLOCK_Y - 2U, 126U, 48U, WORK_CARD_CLOCK_BG_COLOR);
+
+  LCD_WorkCardDrawDash(x, WORK_CARD_CLOCK_Y);
+  x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawDash(x, WORK_CARD_CLOCK_Y);
+  x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawColon(x + 2U, WORK_CARD_CLOCK_Y);
+  x += 10U + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawDash(x, WORK_CARD_CLOCK_Y);
+  x += WORK_CARD_CLOCK_DIGIT_W + WORK_CARD_CLOCK_GAP;
+
+  LCD_WorkCardDrawDash(x, WORK_CARD_CLOCK_Y);
+}
+
 void LCD_DisplayClockValue(uint8_t hour, uint8_t minute)
 {
   uint16_t x = WORK_CARD_CLOCK_X;
@@ -82,9 +113,9 @@ void LCD_DisplayClockValue(uint8_t hour, uint8_t minute)
 void LCD_DisplayWorkCardInit(void)
 {
   ST7735_FillScreen(WORK_CARD_BG_COLOR);
-  ST7735_DrawString(13, 8, "Jinlu Gas Smart ID", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
+  ST7735_DrawString(13, 8, "Ling Huang Smart ID", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
   ST7735_DrawString(120, 22, "LOGO", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
-  LCD_DisplayClockValue(15U, 47U);
+  LCD_DisplayClockInvalid();
   ST7735_DrawString(38, 88, "Name:XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
   ST7735_DrawString(38, 102, "Job :XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);
   ST7735_DrawString(38, 116, "Dept:XXX", ST7735_BLACK, WORK_CARD_BG_COLOR, &Font_7x10);

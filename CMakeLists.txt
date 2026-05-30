@@ -50,6 +50,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/base64_codec.c
     Core/Src/fonts.c
     Core/Src/four_g_mqtt.c
+    Core/Src/four_g_time.c
     Core/Src/gps.c
     Core/Src/key.c
     Core/Src/lcd_display.c
